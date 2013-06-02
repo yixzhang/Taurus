@@ -1,8 +1,11 @@
 package com.dp.bigdata.taurus.agent;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.zookeeper.Watcher;
 
 import com.dp.bigdata.taurus.agent.exec.Executor;
+import com.dp.bigdata.taurus.agent.spring.JarExecutor;
 import com.dp.bigdata.taurus.agent.utils.AgentServerHelper;
 import com.dp.bigdata.taurus.zookeeper.common.MachineType;
 import com.dp.bigdata.taurus.zookeeper.common.infochannel.DefaultZKWatcher;
@@ -11,6 +14,7 @@ import com.dp.bigdata.taurus.zookeeper.common.infochannel.interfaces.ScheduleInf
 import com.google.inject.Inject;
 
 public class TaurusAgentServer implements AgentServer{
+    private static final Log LOG = LogFactory.getLog(TaurusAgentServer.class);
 
 	private static final int CHECK_INTERVALS = 30*1000;
 
@@ -23,7 +27,7 @@ public class TaurusAgentServer implements AgentServer{
 	
 	@Inject
 	public TaurusAgentServer(DeploymentInfoChannel deployer,ScheduleInfoChannel schedule, Executor executor, int interval){
-		
+	    LOG.info("Starting..");
 	    this.deployer = deployer;
 		this.schedule = schedule;
 		this.executor = executor;
@@ -31,7 +35,6 @@ public class TaurusAgentServer implements AgentServer{
 		deployer.registerWatcher(deployWatcher);
 	    Watcher scheduleWatcher = new DefaultZKWatcher(schedule);
 	    schedule.registerWatcher(scheduleWatcher);
-
 
 		localIp = AgentServerHelper.getLocalIp();
 		if(interval > 0){
@@ -42,16 +45,23 @@ public class TaurusAgentServer implements AgentServer{
 	public void start(){
 		deployer.connectToCluster(MachineType.AGENT, localIp);
 		schedule.connectToCluster(MachineType.AGENT, localIp);
-		DeploymentUtility.checkAndDeployTasks(executor, localIp, deployer,true);
-		DeploymentUtility.checkAndUndeployTasks(executor, localIp, deployer,true);
+	    LOG.info("Taurus agent starts.");
+
+		DeploymentUtility.checkAndDeployTasks(localIp, deployer,true);
+		DeploymentUtility.checkAndUndeployTasks( localIp, deployer,true);
 		ScheduleUtility.checkAndRunTasks(executor, localIp, schedule, true);
 		ScheduleUtility.checkAndKillTasks(executor, localIp, schedule, true);
+		
+		ScheduleUtility.startZombieThread(localIp, schedule);
+		JarExecutor jarExecutor = new JarExecutor();
+		jarExecutor.monitor();
+		
 		while(true){
 			try {
 				Thread.sleep(interval);
 			} catch (InterruptedException e) { /*do nothing*/}
-			DeploymentUtility.checkAndDeployTasks(executor, localIp, deployer, false);
-			DeploymentUtility.checkAndUndeployTasks(executor, localIp, deployer, false);
+			DeploymentUtility.checkAndDeployTasks(localIp, deployer, false);
+			DeploymentUtility.checkAndUndeployTasks(localIp, deployer, false);
 			ScheduleUtility.checkAndRunTasks(executor, localIp, schedule, false);
 			ScheduleUtility.checkAndKillTasks(executor, localIp, schedule, false);
 		}

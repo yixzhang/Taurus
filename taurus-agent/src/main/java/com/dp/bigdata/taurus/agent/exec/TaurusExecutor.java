@@ -20,7 +20,6 @@ public class TaurusExecutor implements Executor{
 	private static final Log LOG = LogFactory.getLog(TaurusExecutor.class);
 	private Map<String,DefaultExecutor> executorMap = new HashMap<String,DefaultExecutor>();
 	
-
 	@Override
 	public int execute(String id, long maxExecutionTime, Map env, OutputStream stdOut, OutputStream stdErr,
 			String cmd) throws IOException {
@@ -55,32 +54,33 @@ public class TaurusExecutor implements Executor{
 		throws IOException{
 		DefaultExecutor executor = new DefaultExecutor();
 		executor.setWatchdog(new ExecuteWatchdog(-1));
-        LOG.debug("Ready to Execute " + id);
-		if(id != null) {
-			executorMap.put(id, executor);
-		}
+        LOG.debug("Ready to Execute " + id + ". Command is "+ cmdLine);
 		executor.setExitValues(null);
 		PumpStreamHandler streamHandler = new PumpStreamHandler(stdOut,stdErr);
 		executor.setStreamHandler(streamHandler);
-		if(maxExecutionTime > 0){
-			executor.setWatchdog(new ExecuteWatchdog(maxExecutionTime));
-		}
-		LOG.debug("Command is "+ cmdLine);
-		return executor.execute(cmdLine, env);
+		executorMap.put(id, executor);
+		int result = executor.execute(cmdLine, env);
+		executorMap.remove(id);
+		return result;
 	}
 	
 	@Override
 	public int kill(String id) {
 		try{
 		    LOG.debug("Ready to kill " + id);
-			System.out.println(executorMap.get(id));
-			System.out.println(executorMap.get(id).getWatchdog());
-			executorMap.get(id).getWatchdog().destroyProcess();
+		    if(executorMap.containsKey(id)){
+		        DefaultExecutor executor = executorMap.get(id);
+		        executorMap.remove(id);
+		        executor.getWatchdog().destroyProcess();    
+		    } else{
+		        return 1;
+		    }
 		} catch(Exception e) {
-			LOG.error(e,e);
+			LOG.error(e.getMessage(),e);
 			return 1;
 		}
 		return 0;
 	}
+	
 
 }
