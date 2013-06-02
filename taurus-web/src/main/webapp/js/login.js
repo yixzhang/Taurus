@@ -2,8 +2,8 @@ function login(){
 	$.ajax({
 		url: 'login.do',
 		data: {
-			username : $('#username').attr("value"),
-			password:  $('#password').attr("value")
+			username : $('#username').val(),
+			password:  $('#password').val()
 		},
 		type:"POST",
 		statusCode:{
@@ -18,3 +18,9 @@ function login(){
 	});
 	return false;
 }
+
+$(document).keydown(function(event) {
+	if (event.keyCode == 13) {
+		login();
+	}
+});

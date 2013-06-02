@@ -14,6 +14,7 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 
 import com.dp.bigdata.taurus.zookeeper.common.MachineType;
+import com.dp.bigdata.taurus.zookeeper.common.infochannel.DefaultZKWatcher;
 import com.dp.bigdata.taurus.zookeeper.common.infochannel.bean.ScheduleConf;
 import com.dp.bigdata.taurus.zookeeper.common.infochannel.bean.ScheduleStatus;
 import com.dp.bigdata.taurus.zookeeper.common.infochannel.guice.ScheduleInfoChanelModule;
@@ -29,8 +30,9 @@ import com.google.inject.Injector;
  */
 public class DefaultExecutorManager implements ExecutorManager{
 	
-	private static final Log s_logger = LogFactory.getLog(DefaultExecutorManager.class);
+	private static final Log LOGGER = LogFactory.getLog(DefaultExecutorManager.class);
 	private static final int DEFAULT_TIME_OUT_IN_SECONDS = 10;
+	private static final int RETRY_SLEEP_TIME = 20*1000;           //20s
 	private static Map<String, Lock> attemptIDToLockMap = new HashMap<String, Lock>();
 
 	private ScheduleInfoChannel dic;
@@ -39,6 +41,8 @@ public class DefaultExecutorManager implements ExecutorManager{
 	public DefaultExecutorManager(){
 		Injector injector = Guice.createInjector(new ScheduleInfoChanelModule());
 		dic = injector.getInstance(ScheduleInfoChannel.class);
+		Watcher zkWatcher = new DefaultZKWatcher(dic);
+		dic.registerWatcher(zkWatcher);
 	}
 	
 	private static Lock getLock(String attemptID){
@@ -52,46 +56,70 @@ public class DefaultExecutorManager implements ExecutorManager{
 		}
 	}
 	
+	private void executeInternal(ExecuteContext context)  throws ExecuteException {
+	    String agentIP = context.getAgentIP();
+        String taskID = context.getTaskID();
+        String attemptID = context.getAttemptID();
+        String cmd = context.getCommand();
+        String taskType = context.getType();
+        String proxyUser = context.getProxyUser();
+        String taskUrl = context.getTaskUrl();
+        
+        if(!dic.exists(MachineType.AGENT,agentIP)){
+            ScheduleStatus status = new ScheduleStatus();
+            status.setStatus(ScheduleStatus.AGENT_UNAVAILABLE);
+            LOGGER.error("Agent " + agentIP + " is unavailable");
+            throw new ExecuteException("Agent unavailable");
+        }else{
+            ScheduleStatus status = (ScheduleStatus) dic.getStatus(agentIP, attemptID, null);
+            if(status == null){
+                ScheduleConf conf = new ScheduleConf();
+                conf.setTaskID(taskID);
+                conf.setAttemptID(attemptID);
+                conf.setCommand(cmd);
+                conf.setTaskType(taskType);
+                conf.setUserName(proxyUser);
+                conf.setTaskUrl(taskUrl);
+                status = new ScheduleStatus();
+                status.setStatus(ScheduleStatus.SCHEDULE_SUCCESS);
+                Lock lock = getLock(attemptID);
+                try{
+                    lock.lock();
+                    dic.execute(agentIP, attemptID, conf, status);
+                } catch (RuntimeException e) {
+                    LOGGER.error("Attempt "+attemptID + " schedule failed",e);
+                    status.setStatus(ScheduleStatus.SCHEDULE_FAILED);
+                    throw new ExecuteException(e);
+                }   
+                finally{
+                    lock.unlock();
+                }
+            }
+            else{
+                LOGGER.error("Attempt "+attemptID + " has already scheduled");
+                throw new ExecuteException("Attempt "+attemptID + " has already scheduled");
+            }
+        }
+	}
+	
     public void execute(ExecuteContext context) throws ExecuteException {
+    	try{
+    	    this.executeInternal(context);
+    	} catch(ExecuteException e){
+    	    //if get Agent unavailable exception, wait 20s and retry;
+    	    if(e.getMessage().equals("Agent unavailable")) {
+    	        try {
+                    Thread.sleep(RETRY_SLEEP_TIME);
+                } catch (InterruptedException e1) {
+                    LOGGER.error(e1,e1);
+                    throw e;
+                }
+                this.executeInternal(context);
+    	    } else {
+    	        throw e;
+    	    }
+    	}
     	
-    	String agentIP = context.getAgentIP();
-    	String taskID = context.getTaskID();
-    	String attemptID = context.getAttemptID();
-    	String cmd = context.getCommand();
-    	String taskType = context.getType();
-    	String proxyUser = context.getProxyUser();
-    	
-    	if(!dic.exists(MachineType.AGENT,agentIP)){
-			ScheduleStatus status = new ScheduleStatus();
-			status.setStatus(ScheduleStatus.AGENT_UNAVAILABLE);
-			throw new ExecuteException("Agent unavailable");
-		}else{
-			ScheduleStatus status = (ScheduleStatus) dic.getStatus(agentIP, attemptID, null);
-			if(status == null){
-				ScheduleConf conf = new ScheduleConf();
-				conf.setTaskID(taskID);
-				conf.setAttemptID(attemptID);
-				conf.setCommand(cmd);
-				conf.setTaskType(taskType);
-				conf.setUserName(proxyUser);
-				status = new ScheduleStatus();
-				status.setStatus(ScheduleStatus.SCHEDULE_SUCCESS);
-				Lock lock = getLock(attemptID);
-				try{
-					lock.lock();
-					dic.execute(agentIP, attemptID, conf, status);
-				} catch (RuntimeException e) {
-					status.setStatus(ScheduleStatus.SCHEDULE_FAILED);
-					throw new ExecuteException(e);
-				}	
-				finally{
-					lock.unlock();
-				}
-			}
-			else{
-				throw new ExecuteException("Attempt "+attemptID + " has already scheduled");
-			}
-		}
     }
 
     public void kill(ExecuteContext context) throws ExecuteException {
@@ -101,15 +129,14 @@ public class DefaultExecutorManager implements ExecutorManager{
     	
     	ScheduleStatus status = new ScheduleStatus();
 		if(!dic.exists(MachineType.AGENT, agentIP)){
+	        LOGGER.error("Agent unavailable");
 			throw new ExecuteException("Agent unavailable");
 		}else{
 			status = (ScheduleStatus) dic.getStatus(agentIP, attemptID, null);
-			if(status == null||status.getStatus() == ScheduleStatus.DELETE_SUCCESS||status.getStatus() == ScheduleStatus.DELETE_SUCCESS
-					||status.getStatus() == ScheduleStatus.EXECUTE_SUCCESS||status.getStatus() == ScheduleStatus.EXECUTE_FAILED){
-				s_logger.error("Job Instance:" + attemptID + " cannot be killed!");
-				throw new ExecuteException("Job Instance:" + attemptID + " cannot be killed!");
-			}else{
-				status.setStatus(ScheduleStatus.DELETE_SUBMITTED);
+			if(status == null || status.getStatus() != ScheduleStatus.EXECUTING) {
+				LOGGER.error("Job Attempt:" + attemptID + " cannot be killed!");
+				throw new ExecuteException("Job Attempt:" + attemptID + " cannot be killed!");
+			} else{
 				Lock lock = getLock(attemptID);
 				try{
 					lock.lock();
@@ -117,23 +144,22 @@ public class DefaultExecutorManager implements ExecutorManager{
 					ScheduleStatusWatcher w = new ScheduleStatusWatcher(lock, killFinish, dic, agentIP, attemptID);
 					dic.killTask(agentIP, attemptID, status, w);
 					if(!killFinish.await(opTimeout, TimeUnit.SECONDS)){
-						status = (ScheduleStatus) dic.getStatus(agentIP, attemptID, null);
-						if(status != null && status.getStatus() == ScheduleStatus.DELETE_SUBMITTED){
-							status.setStatus(ScheduleStatus.DELETE_TIMEOUT);
-							throw new ExecuteException("Delete " + attemptID + " timeout");
-						}
+						LOGGER.error("Delete " + attemptID + " timeout");
+                        throw new ExecuteException("Delete " + attemptID + " timeout");
 					}else{
 						status = w.getScheduleStatus();
 					}
 					
 					dic.completeKill(agentIP, attemptID);
 				} catch(InterruptedException e){
+	                LOGGER.error("Delete " + attemptID + " failed" ,e);
 					throw new ExecuteException("Delete " + attemptID + " failed");
 				}
 				finally{
 					lock.unlock();
 				}
 				if(status.getStatus()!=ScheduleStatus.DELETE_SUCCESS) {
+                    LOGGER.error("Delete " + attemptID + " failed");
 					throw new ExecuteException("Delete " + attemptID + " failed");
 				}
 			}
@@ -145,10 +171,12 @@ public class DefaultExecutorManager implements ExecutorManager{
     	String attemptID = context.getAttemptID();
 
     	if(!dic.exists(MachineType.AGENT, agentIP)){
+            LOGGER.error("Agent unavailable");
 			throw new ExecuteException("Agent unavailable");
 		} else{
 			ScheduleStatus status = (ScheduleStatus) dic.getStatus(agentIP, attemptID, null);
 			if(status == null) {
+		        LOGGER.error("Fail to get status");
 				throw new ExecuteException("Fail to get status");
 			}
 			ExecuteStatus result = null;
@@ -159,10 +187,8 @@ public class DefaultExecutorManager implements ExecutorManager{
 				result = new ExecuteStatus(ExecuteStatus.SUCCEEDED);
 			} else if(statusCode == ScheduleStatus.DELETE_SUCCESS) {
 				result = new ExecuteStatus(ExecuteStatus.KILLED);
-			} else if(statusCode == ScheduleStatus.SCHEDULE_FAILED) {
-				result = new ExecuteStatus(ExecuteStatus.SUBMIT_FAIL);
-			} else if(statusCode == ScheduleStatus.SCHEDULE_SUCCESS) {
-				result = new ExecuteStatus(ExecuteStatus.SUBMIT_SUCCESS);
+			} else if(statusCode == ScheduleStatus.UNKNOWN) {
+			    result = new ExecuteStatus(ExecuteStatus.UNKNOWN);
 			} else {
 				result = new ExecuteStatus(ExecuteStatus.RUNNING);
 			}
@@ -210,3 +236,4 @@ public class DefaultExecutorManager implements ExecutorManager{
 	}
 
 }
+

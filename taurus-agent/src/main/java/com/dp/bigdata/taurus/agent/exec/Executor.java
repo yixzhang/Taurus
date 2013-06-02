@@ -24,5 +24,4 @@ public interface Executor {
 			OutputStream stdOut, OutputStream stdErr) throws IOException;
 	
 	public int kill(String id);
-	
 }

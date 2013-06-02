@@ -6,7 +6,7 @@
 	<parent>
 		<groupId>com.dp.bigdata</groupId>
 		<artifactId>taurus-parent</artifactId>
-		<version>0.2</version>
+		<version>0.3</version>
 	</parent>
 	<artifactId>taurus-web</artifactId>
 	<packaging>war</packaging>
@@ -15,7 +15,7 @@
 
 	<properties>
 		<webappDirectory>${project.build.directory}/${project.build.finalName}</webappDirectory>
-		<restletVersion>2.1-SNAPSHOT</restletVersion>
+		<restletVersion>2.1.1</restletVersion>
 	</properties>
 	
 	<repositories>
@@ -28,10 +28,10 @@
 
 	<dependencies>
 		<dependency>
-	<groupId>org.apache.httpcomponents</groupId>
-	<artifactId>httpmime</artifactId>
-	<version>4.2.1</version>
-	</dependency>
+			<groupId>org.apache.httpcomponents</groupId>
+			<artifactId>httpmime</artifactId>
+			<version>4.2.1</version>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpcore</artifactId>
@@ -48,21 +48,20 @@
 			<version>4.2.1</version>
 		</dependency>
 		<dependency>
-			<groupId>junit</groupId>
-			<artifactId>junit</artifactId>
-			<version>3.8.1</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
 			<groupId>com.dp.bigdata</groupId>
 			<artifactId>taurus-restlet</artifactId>
-			<version>0.2</version>
+			<version>0.3</version>
 			<exclusions>
 				<exclusion>
 					<groupId>*</groupId>
 					<artifactId>*</artifactId>
 				</exclusion>
 			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>com.dp.bigdata</groupId>
+			<artifactId>taurus-core</artifactId>
+			<version>0.3</version>
 		</dependency>
 		<dependency>
 			<groupId>javax.servlet</groupId>
@@ -103,23 +102,5 @@
 	</dependencies>
 	<build>
 		<finalName>taurus-web</finalName>
-		<plugins>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-war-plugin</artifactId>
-				<version>2.1.1</version>
-				<executions>
-					<execution>
-						<phase>compile</phase>
-						<goals>
-							<goal>exploded</goal>
-						</goals>
-					</execution>
-				</executions>
-				<configuration>
-					<webappDirectory>${webappDirectory}</webappDirectory>
-				</configuration>
-			</plugin>
-		</plugins>
 	</build>
 </project>

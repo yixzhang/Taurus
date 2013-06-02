@@ -87,6 +87,7 @@ final public class Engine implements Scheduler {
         List<Task> tasks = taskMapper.selectByExample(example);
         for (Task task : tasks) {
             registedTasks.put(task.getTaskid(), task);
+            tasksMapCache.put(task.getName(), task.getTaskid());
         }
         // load running attempts
         TaskAttemptExample example1 = new TaskAttemptExample();
@@ -124,6 +125,7 @@ final public class Engine implements Scheduler {
                 newHost.setName(ip);
                 newHost.setIsconnected(true);
                 if (host == null) {
+                    newHost.setPoolid(1);
                     hostMapper.insert(newHost);
                 } else {
                     hostMapper.updateByPrimaryKeySelective(newHost);
@@ -133,20 +135,30 @@ final public class Engine implements Scheduler {
 
         while (true) {
             LOG.info("Engine trys to scan the database...");
-            crontabTriggle.triggle();
-            dependencyTriggle.triggle();
-            List<AttemptContext> contexts = filter.filter(getReadyToRunAttempt());
-            for (AttemptContext context : contexts) {
-                try {
-                    executeAttempt(context);
-                } catch (ScheduleException e) {
-                    // do nothing
-                    LOG.error(e.getMessage());
+            List<AttemptContext> contexts = null;
+            try {
+                crontabTriggle.triggle();
+                dependencyTriggle.triggle();
+                contexts = filter.filter(getReadyToRunAttempt());
+            } catch (Exception e) {
+                LOG.error("Unexpected Exception", e);
+            }
+            if (contexts != null) {
+                for (AttemptContext context : contexts) {
+                    try {
+                        executeAttempt(context);
+                    } catch (ScheduleException e) {
+                        // do nothing
+                        LOG.error(e.getMessage());
+                    } catch (Exception e) {
+                        LOG.error("Unexpected Exception", e);
+                    }
                 }
             }
             try {
                 Thread.sleep(SCHDUELE_INTERVAL);
             } catch (InterruptedException e) {
+                LOG.error("Interrupted exception", e);
             }
         }
     }
@@ -162,8 +174,10 @@ final public class Engine implements Scheduler {
     @Override
     public synchronized void registerTask(Task task) throws ScheduleException {
         if (!registedTasks.containsKey(task.getTaskid())) {
+            taskMapper.insertSelective(task);
+            task = taskMapper.selectByPrimaryKey(task.getTaskid());
             registedTasks.put(task.getTaskid(), task);
-            taskMapper.insert(task);
+            tasksMapCache.put(task.getName(), task.getTaskid());
         } else {
             throw new ScheduleException("The task : " + task.getTaskid() + " has been registered.");
         }
@@ -181,16 +195,21 @@ final public class Engine implements Scheduler {
             task.setStatus(TaskStatus.DELETED);
             taskMapper.updateByPrimaryKeySelective(task);
             registedTasks.remove(taskID);
+            tasksMapCache.remove(task.getName());
         }
     }
 
     @Override
     public synchronized void updateTask(Task task) throws ScheduleException {
         if (registedTasks.containsKey(task.getTaskid())) {
-            registedTasks.remove(task.getTaskid());
-            registedTasks.put(task.getTaskid(), task);
+            Task origin = registedTasks.get(task.getTaskid());
             task.setUpdatetime(new Date());
+            task.setStatus(origin.getStatus());
+            task.setCreator(null);
             taskMapper.updateByPrimaryKeySelective(task);
+            registedTasks.remove(task.getTaskid());
+            Task tmp = taskMapper.selectByPrimaryKey(task.getTaskid());
+            registedTasks.put(task.getTaskid(), tmp);
         } else {
             throw new ScheduleException("The task : " + task.getTaskid() + " has not been found.");
         }
@@ -219,7 +238,7 @@ final public class Engine implements Scheduler {
             Task task = registedTasks.get(taskID);
             task.setStatus(TaskStatus.SUSPEND);
             task.setUpdatetime(new Date());
-            taskMapper.updateByPrimaryKey(task);
+            taskMapper.updateByPrimaryKeySelective(task);
         } else {
             throw new ScheduleException("The task : " + taskID + " has not been found.");
         }
@@ -230,8 +249,10 @@ final public class Engine implements Scheduler {
         if (registedTasks.containsKey(taskID)) {
             Task task = registedTasks.get(taskID);
             task.setStatus(TaskStatus.RUNNING);
-            task.setUpdatetime(new Date());
-            taskMapper.updateByPrimaryKey(task);
+            Date current = new Date();
+            task.setLastscheduletime(current);
+            task.setUpdatetime(current);
+            taskMapper.updateByPrimaryKeySelective(task);
         } else {
             throw new ScheduleException("The task : " + taskID + " has not been found.");
         }
@@ -256,16 +277,17 @@ final public class Engine implements Scheduler {
             zookeeper.execute(context.getContext());
         } catch (ExecuteException ee) {
             attempt.setStatus(AttemptStatus.SUBMIT_FAIL);
-            taskAttemptMapper.updateByPrimaryKey(attempt);
+            attempt.setEndtime(new Date());
+            taskAttemptMapper.updateByPrimaryKeySelective(attempt);
             throw new ScheduleException("Fail to execute attemptID : " + attempt.getAttemptid() + " on host : "
-                    + host.getIp());
+                    + host.getIp(),ee);
         }
         final long end = System.nanoTime();
         LOG.info("Time (seconds) taken " + (end - start) / 1.0e9 + " to start attempt : " + context.getAttemptid());
 
         // update the status for TaskAttempt
         attempt.setStatus(AttemptStatus.RUNNING);
-        taskAttemptMapper.updateByPrimaryKey(attempt);
+        taskAttemptMapper.updateByPrimaryKeySelective(attempt);
         // register the attempt context
         registAttemptContext(context);
     }
@@ -358,6 +380,16 @@ final public class Engine implements Scheduler {
         }
     }
 
+    
+	public void attemptUnKonwed(String attemptID){
+		AttemptContext context = runningAttempts.get(AttemptID.getTaskID(attemptID)).get(attemptID);
+        TaskAttempt attempt = context.getAttempt();
+        attempt.setEndtime(new Date());
+        attempt.setStatus(AttemptStatus.UNKNOWN);
+        taskAttemptMapper.updateByPrimaryKeySelective(attempt);
+        unregistAttemptContext(context);
+	}
+	
     @Override
     public List<AttemptContext> getAllRunningAttempt() {
         List<AttemptContext> contexts = new ArrayList<AttemptContext>();
@@ -390,7 +422,8 @@ final public class Engine implements Scheduler {
         try {
             status = zookeeper.getStatus(context.getContext());
         } catch (ExecuteException ee) {
-            status = new ExecuteStatus(AttemptStatus.UNKNOWN);
+      	  // 当心跳节点消失后出现异常，但是作业仍应该是running状态。
+            status = new ExecuteStatus(AttemptStatus.RUNNING);
         }
         AttemptStatus astatus = new AttemptStatus(status.getStatus());
         astatus.setReturnCode(status.getReturnCode());
@@ -437,18 +470,14 @@ final public class Engine implements Scheduler {
     public synchronized Task getTaskByName(String name) throws ScheduleException {
         if (tasksMapCache.containsKey(name)) {
             String taskID = tasksMapCache.get(name);
-            return registedTasks.get(taskID);
-        } else {
-            TaskExample example = new TaskExample();
-            example.or().andNameEqualTo(name);
-            List<Task> tasks = taskMapper.selectByExample(example);
-            if (tasks != null && tasks.size() == 1) {
-                Task task = tasks.get(0);
-                tasksMapCache.put(name, task.getTaskid());
-                return task;
-            } else {
+            Task task = registedTasks.get(taskID);
+            if(task == null ){
                 throw new ScheduleException("Cannot found tasks for the given name.");
+            } else {
+                return task;
             }
+        } else {
+            throw new ScheduleException("Cannot found tasks for the given name.");
         }
     }
 

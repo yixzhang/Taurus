@@ -1,3 +1,4 @@
+<!DOCTYPE HTML>
 <%@ page contentType="text/html;charset=utf-8" %>
 <html lang="en">
 <head>
@@ -14,18 +15,62 @@
     <%@page import="org.restlet.data.MediaType"%>
     <%@page import="java.text.SimpleDateFormat"%>
 
-
 	<div class="container" style="margin-top: 10px">
-        <div id="alertContainer" class="container">
-        </div>
+        <div id="alertContainer" class="container"></div>
+          <div class="row">
+            <div class="span3 hide">
+                <div class="well well-large">
+                  <form class="form-horizontal selector-form">
+					<div class="control-group hide">
+						<label class="control-label">任务组</label>
+						
+					<div class="controls">
+							<select id="selector-task-group-id">
+								<option value="">--选择全部--</option>
+								<option value="1">wormhole</option>
+								<option value="2">mid/dim</option>
+								<option value="3">dm</option>
+								<option value="4">rpt</option>
+								<option value="5">mail</option>
+								<option value="6">dw</option>
+							</select>
+						</div></div>
+					<div class="control-group">
+						<label class="control-label">创建人</label>
+						<div class="controls">
+							<select id="selector-cycle">
+								
+							</select>
+						</div>
+					</div>
+					<div class="control-group">
+						<label class="control-label">任务名称</label>
+						<div class="controls">
+							<input type="text" id="selector-task-name" placeholder="模糊查询...">
+						</div>
+					</div>
+					<div class="control-group">
+						<div class="controls">
+							<button type="submit" id="search-btn" class="btn btn-large btn-primary pull-right">开始查询</button>
+						</div>
+					</div>
+				</form>
+                </div>
+    	 	</div>
+         <div class="span12">
+         <ul class="breadcrumb">
+				<li><a href="./index.jsp">首页</a> <span class="divider">/</span></li>
+				<li><a href="#" class="active">调度中心</a> <span class="divider">/</span></li>
+		 </ul>
 		<table cellpadding="0" cellspacing="0" border="0"
-			class="table table-striped table-format" id="example">
+			class="table table-striped table-format table-hover" id="example">
 			<thead>
 				<tr>
 					<th class="hide">ID</th>
 					<th>名称</th>
 					<th>调度人</th>
-					<th>组</th>
+					<th>调度身份</th>
+					<th class="hide">组</th>
 					<th>创建时间</th>
 					<th>Crontab</th>
                     <th>状态</th>
@@ -34,9 +79,13 @@
 				</tr>
 			</thead>
 			<tbody>
-				<% ClientResource cr = new ClientResource(host + "task");
+				<%  String task_api = host + "task";
+					if(currentUser != null){
+						task_api = task_api + "?user=" + currentUser;
+					}
+					ClientResource cr = new ClientResource(task_api);
                     ITasksResource resource = cr.wrap(ITasksResource.class);
-                     cr.accept(MediaType.APPLICATION_XML);
+                    cr.accept(MediaType.APPLICATION_XML);
                     ArrayList<TaskDTO> tasks = resource.retrieve();
 					SimpleDateFormat formatter =  new SimpleDateFormat("yyyy-MM-dd HH:mm");
                     for(TaskDTO dto : tasks){
@@ -52,7 +101,8 @@
                     <td class="hide"><%=dto.getTaskid()%></td>
                     <td><%=dto.getName()%></td>
                     <td><%=dto.getCreator()%></td>
-                    <td>arch(mock)</td>
+					<td><%=dto.getProxyuser()%></td>
+                    <td class="hide">arch(mock)</td>
                     <td><%=formatter.format(dto.getAddtime())%></td>
                     <td><%=dto.getCrontab()%></td>
                     <td><%if(isRunning){%>
@@ -72,7 +122,7 @@
                           <li><a href="#confirm" onClick="action($(this).parents('tr').find('td')[0].textContent,2)">恢复</a></li>   
                           <%}%>
                           <li><a href="#confirm" onClick="action($(this).parents('tr').find('td')[0].textContent,3)">执行</a></li>
-                          <li><a href="#confirm" onClick="">详细</a></li>
+                          <li><a href="#confirm" onClick="action($(this).parents('tr').find('td')[0].textContent,4)">详细</a></li>
                         </ul>
                       </div>
                     </td>
@@ -81,6 +131,8 @@
                <% } %>
 			</tbody>
 		</table>
+            </div>
+  		</div>
 	</div>
 
 	<div id="confirm" class="modal hide fade">
@@ -96,9 +148,13 @@
         <a href="#" class="btn btn-danger" onClick="action_ok()">确定</a>
       </div>
     </div>
+    
+    <jsp:include page="task_form.jsp"/>
 
-	<script type="text/javascript" charset="utf-8" language="javascript" src="js/jquery.dataTables.js"></script>
-	<script type="text/javascript" charset="utf-8" language="javascript" src="js/DT_bootstrap.js"></script>
-    <script type="text/javascript" charset="utf-8" language="javascript" src="js/schedule.js"></script>
+	<script type="text/javascript" charset="utf-8" src="js/jquery.dataTables.js"></script>
+	<script type="text/javascript" charset="utf-8" src="js/DT_bootstrap.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/schedule.js"></script>
+    <script src="js/jquery.validate.min.js" type="text/javascript"></script>
+    <script src="js/taurus_validate.js" type="text/javascript"></script>
 </body>
 </html>

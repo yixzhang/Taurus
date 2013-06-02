@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -7,6 +8,7 @@
     <meta name="author" content="">
 	<%@ include file="jsp/common-header.jsp"%>
     <script src="js/login.js"></script>
+
   </head>
 
   <body>

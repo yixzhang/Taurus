@@ -4,14 +4,14 @@
 	<parent>
 		<groupId>com.dp.bigdata</groupId>
 		<artifactId>taurus-parent</artifactId>
-		<version>0.2</version>
+		<version>0.3</version>
 	</parent>
 	<artifactId>taurus-restlet</artifactId>
 	<name>taurus-restlet</name>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<restletVersion>2.1-SNAPSHOT</restletVersion>
+		<restletVersion>2.1.1</restletVersion>
 		<webappDirectory>${project.build.directory}/${project.build.finalName}</webappDirectory>
 	</properties>
 
@@ -27,7 +27,7 @@
 		<dependency>
 			<groupId>com.dp.bigdata</groupId>
 			<artifactId>taurus-core</artifactId>
-			<version>0.2</version>
+			<version>0.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.hadoop</groupId>
@@ -44,11 +44,6 @@
 			<artifactId>org.restlet</artifactId>
 			<version>${restletVersion}</version>
 		</dependency>
-<!-- 		<dependency>
-			<groupId>org.restlet.jse</groupId>
-			<artifactId>org.restlet.ext.gwt</artifactId>
-			<version>${restletVersion}</version>
-		</dependency> -->
 		<dependency>
 			<groupId>org.restlet.jse</groupId>
 			<artifactId>org.restlet.ext.jetty</artifactId>
@@ -59,11 +54,6 @@
 			<artifactId>org.restlet.ext.fileupload</artifactId>
 			<version>${restletVersion}</version>
 		</dependency>
-<!-- 		<dependency>
-			<groupId>org.restlet.jse</groupId>
-			<artifactId>org.restlet.ext.xstream</artifactId>
-			<version>${restletVersion}</version>
-		</dependency> -->
 		<dependency>
 			<groupId>org.restlet.jse</groupId>
 			<artifactId>org.restlet.ext.slf4j</artifactId>
